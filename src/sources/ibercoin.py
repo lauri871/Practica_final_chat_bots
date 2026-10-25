@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 
 
 def extract_coin_data(html: str, url: str) -> dict:
-    """Extrae los datos disponibles de una moneda de Ibercoin."""
+    """Extrae los datos disponibles de una ficha de Ibercoin."""
     soup = BeautifulSoup(html, "lxml")
 
     data = {
@@ -15,44 +15,44 @@ def extract_coin_data(html: str, url: str) -> dict:
         "fuente": "ibercoin",
     }
 
-    # Nombre de la moneda.
-    name_tag = soup.find("meta", attrs={"itemprop": "name"})
-    if name_tag and name_tag.get("content"):
-        data["titulo"] = name_tag["content"].strip()
-
-    # Descripción completa de la moneda.
+    # Obtener la descripción completa de la moneda.
     description_tag = soup.find(
         "meta", attrs={"itemprop": "description"}
     )
-    description = ""
 
+    description = ""
     if description_tag and description_tag.get("content"):
         description = description_tag["content"].strip()
 
-    # Extraer las descripciones del anverso y del reverso.
-    obverse_match = re.search(
-        r"Anv:(.*?)Rev:",
-        description,
-        re.IGNORECASE | re.DOTALL,
-)
-
-    reverse_match = re.search(
-        r"Rev:\s(.?)(?=\s(?:EBC|MBC|BC|Precio)\b|$)",
-        description,
-        re.IGNORECASE,
-    )
-
-    if obverse_match:
-        data["descripcion_anverso"] = obverse_match.group(1).strip()
-
-    if reverse_match:
-        data["descripcion_reverso"] = reverse_match.group(1).strip()
-
-    # Guardar también la descripción original completa.
+    # Usar la descripción completa como título.
     if description:
+        data["titulo"] = description
         data["descripcion_original"] = description
 
-    # Precio y moneda.
+    # Extraer anverso y reverso dividiendo el texto.
+    if "Anv:" in description and "Rev:" in description:
+        partes = description.split("Anv:", 1)
+        texto_anverso_y_reverso = partes[1]
+
+        partes_reverso = texto_anverso_y_reverso.split("Rev:", 1)
+
+        anverso = partes_reverso[0].strip()
+        reverso = partes_reverso[1].strip()
+
+        if anverso:
+            data["descripcion_anverso"] = anverso
+
+        # Retirar la conservación y los comentarios posteriores.
+        reverso = re.split(
+            r"\s+(?:EBC|MBC|BC)\b",
+            reverso,
+            maxsplit=1,
+            flags=re.IGNORECASE,
+        )[0].strip()
+
+        if reverso:
+            data["descripcion_reverso"] = reverso
+
     price_tag = soup.find("meta", attrs={"itemprop": "price"})
     currency_tag = soup.find(
         "meta", attrs={"itemprop": "priceCurrency"}
@@ -69,7 +69,7 @@ def extract_coin_data(html: str, url: str) -> dict:
         except ValueError:
             pass
 
-
+    # Extraer la imagen principal de la moneda.
     image_tag = soup.find("meta", attrs={"itemprop": "image"})
 
     if image_tag and image_tag.get("content"):
@@ -84,7 +84,7 @@ def extract_coin_data(html: str, url: str) -> dict:
                 urljoin(url, image_tag["href"])
             ]
 
-    # Peso y diámetro, cuando están disponibles.
+    # Extraer peso y diámetro cuando estén disponibles.
     measurements = re.search(
         r"((?:Ar.\s)?([\d,]+)\sg\s/\s([\d,]+)\s*mm)",
         description,
@@ -103,7 +103,7 @@ def extract_coin_data(html: str, url: str) -> dict:
 
 
 def acquire_ibercoin(output_dir: Path) -> None:
-    """Lee el HTML de prueba y guarda los datos extraídos en JSON."""
+    """Lee el HTML guardado y escribe los datos extraídos en JSON."""
     project_root = Path(__file__).resolve().parents[2]
 
     html_file = (
@@ -127,6 +127,8 @@ def acquire_ibercoin(output_dir: Path) -> None:
     )
 
     coin = extract_coin_data(html, url)
+
+    # Validar los campos esenciales.
     if not coin.get("url") or not coin.get("imagenes"):
         raise ValueError(
             "La ficha no contiene URL o imagen de la moneda."
@@ -147,3 +149,10 @@ def acquire_ibercoin(output_dir: Path) -> None:
 
     print(f"Datos extraídos y guardados en: {output_file}")
     print(json.dumps(coin, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    # Permite ejecutar este archivo directamente para probarlo.
+    project_root = Path(__file__).resolve().parents[2]
+    raw_dir = project_root / "data" / "raw" / "ibercoin"
+    acquire_ibercoin(raw_dir)
