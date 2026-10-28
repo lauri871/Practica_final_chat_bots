@@ -3,18 +3,12 @@ import json
 import re
 from pathlib import Path
 from urllib.parse import urljoin
-
 from bs4 import BeautifulSoup
 
 
 def extract_coin_data(html: str, url: str) -> dict:
     """Extrae los datos disponibles de una ficha de Ibercoin."""
     soup = BeautifulSoup(html, "lxml")
-
-    data = {
-        "url": url,
-        "fuente": "ibercoin",
-    }
 
     # Extraer la descripción original.
     description_tag = soup.find(
@@ -26,6 +20,10 @@ def extract_coin_data(html: str, url: str) -> dict:
 
     if description_tag and description_tag.get("content"):
         description = description_tag["content"].strip()
+
+    data = {
+        "URL": url,
+    }
 
     if description:
         data["titulo"] = description
@@ -42,7 +40,7 @@ def extract_coin_data(html: str, url: str) -> dict:
         reverso = partes_reverso[1].strip()
 
         if anverso:
-            data["descripcion_anverso"] = anverso
+            data["descripcion_imagen_anverso"] = anverso
 
         # Eliminar la conservación y los comentarios posteriores.
         reverso = re.split(
@@ -53,29 +51,18 @@ def extract_coin_data(html: str, url: str) -> dict:
         )[0].strip()
 
         if reverso:
-            data["descripcion_reverso"] = reverso
+            data["descripcion_imagen_reverso"] = reverso
 
-    # Extraer el precio y su moneda.
+    # Extraer el precio (si existe)
     price_tag = soup.find(
         "meta",
         attrs={"itemprop": "price"},
-    )
-
-    currency_tag = soup.find(
-        "meta",
-        attrs={"itemprop": "priceCurrency"},
     )
 
     if price_tag and price_tag.get("content"):
         try:
             data["precio"] = float(
                 price_tag["content"].replace(",", ".")
-            )
-
-            data["moneda_precio"] = (
-                currency_tag.get("content", "EUR")
-                if currency_tag
-                else "EUR"
             )
 
         except (ValueError, AttributeError):
@@ -103,23 +90,37 @@ def extract_coin_data(html: str, url: str) -> dict:
                 urljoin(url, image_tag["href"])
             ]
 
-    # Extraer el peso y el diámetro cuando estén disponibles.
-    measurements = re.search(
-        r"\((?:Ar\.\s*)?([\d,]+)\s*g\s*/\s*([\d,]+)\s*mm\)",
+    # Extraer los años en los que se acuña.
+    year_match = re.search(
+        r"(\b\d+(?:-\d+)?\s*(?:a\.C\.|d\.C\.|BC|AD)\b|\bSiglo\s+[IVXLCDM]+(?:\s*-\s*Siglo\s+[IVXLCDM]+)?\s*(?:a\.C\.|d\.C\.)?\b|\b\d{4}(?:-\d{4})?\b)",
         description,
         re.IGNORECASE,
     )
 
-    if measurements:
-        data["peso_g"] = float(
-            measurements.group(1).replace(",", ".")
-        )
+    if year_match:
+        data["años en las que se acuña"] = year_match.group(1).strip()
 
-        data["diametro_mm"] = float(
-            measurements.group(2).replace(",", ".")
-        )
+    # Extraer inscripción del reverso.
+    rev_insc = re.search(
+        r"leyenda:\s*([^,.\n]+)",
+        description,
+        re.IGNORECASE,
+    )
+
+    if rev_insc:
+        data["inscripción reverso"] = rev_insc.group(1).strip()
+
+    # Extraer mintmark.
+    mint_match = re.search(
+        r"(?:a\.C\.|d\.C\.)\s+([A-ZÁÉÍÓÚ][a-záéíóú]+(?:\s+[a-z]+)?)\.\s*\(",
+        description,
+    )
+
+    if mint_match:
+        data["mintmark"] = mint_match.group(1).strip()
 
     return data
+
 
 
 def get_coin_url(soup: BeautifulSoup) -> str:
@@ -194,9 +195,9 @@ def acquire_ibercoin(output_dir: Path) -> None:
 
             # Comprobar los campos esenciales del proyecto.
             if (
-                moneda.get("url")
+                moneda.get("URL")
                 and moneda.get("imagenes")
-                and moneda.get("descripcion_anverso")
+                and moneda.get("descripcion_imagen_anverso")
             ):
                 monedas.append(moneda)
 
